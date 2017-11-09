@@ -4,8 +4,6 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 import math
 
-from modelAny import *
-
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
@@ -14,9 +12,11 @@ from tensorflow.python.ops import embedding_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import nn_ops
 from tensorflow.python.ops import rnn
-from tensorflow.python.ops import rnn_cell
+#from tensorflow.python.ops import rnn_cell
 from tensorflow.python.ops import variable_scope
 
+import sys
+sys.path.append('../../gym/')
 import gym
 env = gym.make('CartPole-v0')
 
@@ -98,13 +98,13 @@ true_reward = tf.placeholder(tf.float32,[None,1],name="true_reward")
 true_done = tf.placeholder(tf.float32,[None,1],name="true_done")
 
 
-predicted_state = tf.concat(1,[predicted_observation,predicted_reward,predicted_done])
+predicted_state = tf.concat([predicted_observation,predicted_reward,predicted_done],1)
 
 observation_loss = tf.square(true_observation - predicted_observation)
 
 reward_loss = tf.square(true_reward - predicted_reward)
 
-done_loss = tf.mul(predicted_done, true_done) + tf.mul(1-predicted_done, 1-true_done)
+done_loss = tf.multiply(predicted_done, true_done) + tf.multiply(1-predicted_done, 1-true_done)
 done_loss = -tf.log(done_loss)
 
 model_loss = tf.reduce_mean(observation_loss + done_loss + reward_loss)
@@ -269,4 +269,3 @@ for i in range(6):
     plt.subplot(6,2,2*i+1)
     plt.plot(state_nextsAll[:,i])
 plt.tight_layout()
-plt.show()
