@@ -21,7 +21,7 @@ import tflearn
 GAME = 'Breakout-v0'
 BUFFER_SIZE = 4
 INPUT_SHAPE = (BUFFER_SIZE, 84,84)
-NUM_EPISODES = 1
+NUM_EPISODES = 1000
 DISCOUNT = 0.99
 EPSILON_START = 1.0
 EPSILON_MIN = 0.01
@@ -111,28 +111,50 @@ class QlWorker(object):
     def __init__(self, env, sess):
         self.env = env
         self.sess = sess
-        self.inputs, self.qvals = self.create_model()
-        self.target_inputs, self.target_qvals = self.create_model()
-        self.epsilon = EPSILON_START
-        sess.run(tf.initialize_all_variables())
 
-    def create_model(self):
+        self.build_graph()
+        self.epsilon = EPSILON_START
+        sess.run(tf.global_variables_initializer())
+
+    def build_qn(self):
         inputs = tf.placeholder(tf.float32, [None] + list(INPUT_SHAPE))
         net = tflearn.flatten(inputs)
         net = tflearn.fully_connected(net,NUM_HIDDEN_UNITS,activation='relu')
         qvals = tflearn.fully_connected(net, self.env.num_actions)
         return inputs, qvals
 
-    def pred_qvals(self, state):
-        return self.qvals.eval(session=self.sess, feed_dict={self.inputs: [state]})
+    def build_graph(self):
+        # Define prediction model
+        self.pred_inputs, self.pred_qvals = self.build_qn()
+        network_params = tf.trainable_variables()
 
-    def choose_action(self, state):
-        self.epsilon *= EPSILON_DECAY
-        self.epsilon = min(EPSILON_MIN, self.epsilon)
-        if np.random.random() < self.epsilon:
-            return random.rangrange(self.env.num_actions)
+        # Define target model
+        self.target_inputs, self.target_qvals = self.build_qn()
+        target_network_params = tf.trainable_variables()[len(network_params):]
+
+        # Define model updater (SGD)
+        self.actions = tf.placeholder(tf.float32, [None, self.env.num_actions])
+        self.targets = tf.placeholder(tf.float32, [None])
+        Qopts = tf.reduce_sum(tf.multiply(self.pred_qvals, self.actions), reduction_indices=1)
+        cost = tflearn.mean_square(Qopts, self.targets)
+        optimizer = tf.train.RMSPropOptimizer(LR) # change different optimizer? #TBD
+        self.updateModel = optimizer.minimize(cost, var_list=network_params)
+
+        # Define updating target model with prediction model
+        self.update_target_network_params = \
+                [target_network_params[i].assign(network_params[i]) 
+                        for i in range(len(target_network_params))]
+
+        return
+
+    def pred_qvals(self, state, is_target):
+        if is_target:   
+            return self.target_qvals.eval(session=self.sess, feed_dict={self.inputs: [state]})
         else:
-            return np.argmax(pred_qvals(state))
+            return self.qvals.eval(session=self.sess, feed_dict={self.inputs: [state]})
+
+    def update_model(self, action, target):
+        self.sess.run(self.updateModel, feed_dict={self.actions: [action], self.targets: [target]})
 
 
 
@@ -153,30 +175,52 @@ def train(sess):
 
         # Set up per-episode counters
         ep_reward = 0
-        episode_ave_max_q = 0
-        ep_t = 0
+        ep_ave_max_q = 0
+        step = 0
 
         while not done:
-            # Forward the deep q network, get Q(s,a) values
-            if np.random.random() < self.epsilon:
-                action_idx = random.rangrange(self.env.num_actions)
-            else:
-                pred_qvals = dqn_agent.pred_qvals(cur_state)
-                action_idx = np.argmax(pred_qvals)
-                Qopt = np.max(pred_qvals)
 
+            # Forward the deep q network, get Q(s,a) values
+            # pred_qvals = dqn_agent.pred_qvals(cur_state, False)
+            pred_qvals = sess.run(dqn_agent.pred_qvals, feed_dict={dqn_agent.pred_inputs: [cur_state]})
+            # Encode the action in a one hot vector
+            action = np.zeros([env.num_actions])
+            if np.random.random() < dqn_agent.epsilon:
+                action_idx = random.randrange(env.num_actions)
+                # Qopt = pred_qvals[action_idx]
+            else:
+                action_idx = np.argmax(pred_qvals)
+                # Qopt = np.max(pred_qvals)
+            action[action_idx]=1
+            
             # Get new state and reward from environment
             new_state, reward, done, info = env.step(action_idx)
+            ep_reward += reward
+            ep_ave_max_q += np.max(pred_qvals)
 
             target = reward
             if not done:
-                target_state = dqn_agent.pred_qvals(new_state)
-                target += DISCOUNT * np.max(target_state)
+                # target_state = dqn_agent.pred_qvals(new_state, True)
+                target_qvals = sess.run(dqn_agent.target_qvals, \
+                        feed_dict={dqn_agent.target_inputs: [new_state]})
+                target += DISCOUNT * np.max(target_qvals)
+            
+            # Update network weights
+            sess.run(dqn_agent.updateModel, feed_dict={dqn_agent.actions: [action], dqn_agent.targets: [target], dqn_agent.pred_inputs: [cur_state]})
+            # dqn_agent.update_model(action, target)
 
+            # Update target network
+            sess.run(dqn_agent.update_target_network_params)
 
-
-            done =True
-
+            cur_state = new_state
+            step+=1
+    
+        # Episode finished, print stats
+        print "Episode: {}  Step: {}  Reward: {}  Qmax: {}  Epsilon: {}".format(episode, \
+                step, ep_reward, ep_ave_max_q/float(step), dqn_agent.epsilon)
+        if episode > 100:
+            dqn_agent.epsilon *= EPSILON_DECAY
+            dqn_agent.epsilon = max(EPSILON_MIN, dqn_agent.epsilon)
 
  
 
