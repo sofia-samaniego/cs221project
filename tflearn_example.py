@@ -52,23 +52,27 @@ testing = False
 test_model_path = '/path/to/your/qlearning.tflearn.ckpt'
 # Atari game to learn
 # You can also try: 'Breakout-v0', 'Pong-v0', 'SpaceInvaders-v0', ...
-game = 'MsPacman-v0'
+game = 'Boxing-v0'
+# game = 'Breakout-v0'
 # Learning threads
-n_threads = 8
+n_threads = 1
+# n_threads = 8
 
 # =============================
 #   Training Parameters
 # =============================
 # Max training steps
-TMAX = 80000000
+# Number of episodes
+# TMAX = 80000000
+TMAX = 1000
 # Current training step
 T = 0
 # Consecutive screen frames when performing training
 action_repeat = 4
 # Async gradient update frequency of each learning thread
-I_AsyncUpdate = 5
+I_AsyncUpdate = 1 #5
 # Timestep to reset the target network
-I_target = 40000
+I_target = 1  #40000
 # Learning rate
 learning_rate = 0.001
 # Reward discount rate
@@ -76,11 +80,12 @@ gamma = 0.99
 # Number of timesteps to anneal epsilon
 anneal_epsilon_timesteps = 400000
 
+NUM_HIDDEN_UNITS = 10
 # =============================
 #   Utils Parameters
 # =============================
 # Display or not gym evironment screens
-show_training = True
+show_training = False #True
 # Directory for storing tensorboard summaries
 summary_dir = '/tmp/tflearn_logs/'
 summary_interval = 100
@@ -100,12 +105,18 @@ def build_dqn(num_actions, action_repeat):
     inputs = tf.placeholder(tf.float32, [None, action_repeat, 84, 84])
     # Inputs shape: [batch, channel, height, width] need to be changed into
     # shape [batch, height, width, channel]
-    net = tf.transpose(inputs, [0, 2, 3, 1])
-    net = tflearn.conv_2d(net, 32, 8, strides=4, activation='relu')
-    net = tflearn.conv_2d(net, 64, 4, strides=2, activation='relu')
-    net = tflearn.fully_connected(net, 256, activation='relu')
-    q_values = tflearn.fully_connected(net, num_actions)
-    return inputs, q_values
+    # net = tf.transpose(inputs, [0, 2, 3, 1])
+    # net = tflearn.conv_2d(net, 32, 8, strides=4, activation='relu')
+    # net = tflearn.conv_2d(net, 64, 4, strides=2, activation='relu')
+    # net = tflearn.fully_connected(net, 256, activation='relu')
+    # q_values = tflearn.fully_connected(net, num_actions)
+    # return inputs, q_values
+
+    # inputs = tf.placeholder(tf.float32, [None] + list(INPUT_SHAPE))
+    net = tflearn.flatten(inputs)
+    net = tflearn.fully_connected(net,NUM_HIDDEN_UNITS,activation='relu')
+    qvals = tflearn.fully_connected(net, num_actions)
+    return inputs, qvals
 
 
 # =============================
@@ -216,11 +227,14 @@ def actor_learner_thread(thread_id, env, session, graph_ops, num_actions,
     a_batch = []
     y_batch = []
 
-    final_epsilon = sample_final_epsilon()
-    initial_epsilon = 1.0
+    # final_epsilon = sample_final_epsilon()
+    # initial_epsilon = 1.0
     epsilon = 1.0
+    epsilon_min = 0.01
+    epsilon_decay = 0.995
 
-    print("Thread " + str(thread_id) + " - Final epsilon: " + str(final_epsilon))
+    # print("Thread " + str(thread_id) + " - Final epsilon: " + str(final_epsilon))
+    print("Thread " + str(thread_id) + " - Final epsilon: " + str(epsilon))
 
     time.sleep(3*thread_id)
     t = 0
@@ -247,9 +261,12 @@ def actor_learner_thread(thread_id, env, session, graph_ops, num_actions,
             a_t[action_index] = 1
 
             # Scale down epsilon
-            if epsilon > final_epsilon:
-                epsilon -= (initial_epsilon - final_epsilon) / anneal_epsilon_timesteps
-
+            # if epsilon > final_epsilon:
+                # epsilon -= (initial_epsilon - final_epsilon) / anneal_epsilon_timesteps
+            if T > 100:
+                epsilon *= epsilon_decay
+                epsilon = max(epsilon, epsilon_min)
+                
             # Gym excecutes action in game environment on behalf of actor-learner
             s_t1, r_t, terminal, info = env.step(action_index)
 

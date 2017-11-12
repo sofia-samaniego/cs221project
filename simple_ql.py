@@ -18,7 +18,7 @@ import tflearn
 ################################################################################
 # Define game parameters
 ################################################################################
-GAME = 'Breakout-v0'
+GAME = 'VideoPinball-v0'
 BUFFER_SIZE = 4
 INPUT_SHAPE = (BUFFER_SIZE, 84,84)
 NUM_EPISODES = 1000
