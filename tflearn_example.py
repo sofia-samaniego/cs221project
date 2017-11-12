@@ -29,7 +29,8 @@ import time
 from skimage.transform import resize
 from skimage.color import rgb2gray
 from collections import deque
-
+import sys
+sys.path.append('gym/')
 import gym
 import tensorflow as tf
 import tflearn
@@ -49,10 +50,10 @@ except Exception:
 # Change that value to test instead of train
 testing = False
 # Model path (to load when testing)
-test_model_path = '/path/to/your/qlearning.tflearn.ckpt'
+test_model_path = './trained/qlearning.tflearn.ckpt'
 # Atari game to learn
 # You can also try: 'Breakout-v0', 'Pong-v0', 'SpaceInvaders-v0', ...
-game = 'Boxing-v0'
+game = 'Breakout-v0'
 # game = 'Breakout-v0'
 # Learning threads
 n_threads = 1
@@ -63,8 +64,8 @@ n_threads = 1
 # =============================
 # Max training steps
 # Number of episodes
-# TMAX = 80000000
-TMAX = 1000
+TMAX = 80000000
+#TMAX = 100000
 # Current training step
 T = 0
 # Consecutive screen frames when performing training
@@ -72,7 +73,7 @@ action_repeat = 4
 # Async gradient update frequency of each learning thread
 I_AsyncUpdate = 1 #5
 # Timestep to reset the target network
-I_target = 1  #40000
+I_target = 40000
 # Learning rate
 learning_rate = 0.001
 # Reward discount rate
@@ -85,7 +86,7 @@ NUM_HIDDEN_UNITS = 10
 #   Utils Parameters
 # =============================
 # Display or not gym evironment screens
-show_training = False #True
+show_training = True
 # Directory for storing tensorboard summaries
 summary_dir = '/tmp/tflearn_logs/'
 summary_interval = 100
@@ -263,10 +264,7 @@ def actor_learner_thread(thread_id, env, session, graph_ops, num_actions,
             # Scale down epsilon
             # if epsilon > final_epsilon:
                 # epsilon -= (initial_epsilon - final_epsilon) / anneal_epsilon_timesteps
-            if T > 100:
-                epsilon *= epsilon_decay
-                epsilon = max(epsilon, epsilon_min)
-                
+
             # Gym excecutes action in game environment on behalf of actor-learner
             s_t1, r_t, terminal, info = env.step(action_index)
 
@@ -307,8 +305,8 @@ def actor_learner_thread(thread_id, env, session, graph_ops, num_actions,
                 y_batch = []
 
             # Save model progress
-            if t % checkpoint_interval == 0:
-                saver.save(session, "qlearning.ckpt", global_step=t)
+            #if t % checkpoint_interval == 0:
+            #    saver.save(session, "qlearning.ckpt", global_step=t)
 
             # Print end of episode stats
             if terminal:
@@ -321,6 +319,9 @@ def actor_learner_thread(thread_id, env, session, graph_ops, num_actions,
                       (episode_ave_max_q/float(ep_t)),
                       " Epsilon: %.5f" % epsilon, " Epsilon progress: %.6f" %
                       (t/float(anneal_epsilon_timesteps)))
+                if T > 20000:
+                    epsilon *= epsilon_decay
+                    epsilon = max(epsilon, epsilon_min)
                 break
 
 
@@ -439,8 +440,8 @@ def evaluation(session, graph_ops, saver):
     """
     Evaluate a model.
     """
-    saver.restore(session, test_model_path)
-    print("Restored model weights from ", test_model_path)
+    #saver.restore(session, test_model_path)
+    #print("Restored model weights from ", test_model_path)
     monitor_env = gym.make(game)
     monitor_env.monitor.start("qlearning/eval")
 

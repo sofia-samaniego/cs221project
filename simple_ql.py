@@ -18,21 +18,25 @@ import tflearn
 ################################################################################
 # Define game parameters
 ################################################################################
-GAME = 'VideoPinball-v0'
+GAME = 'Breakout-v0'
 BUFFER_SIZE = 4
 INPUT_SHAPE = (BUFFER_SIZE, 84,84)
-NUM_EPISODES = 1000
+NUM_FRAMES = 50000000
 DISCOUNT = 0.99
 EPSILON_START = 1.0
-EPSILON_MIN = 0.01
-EPSILON_DECAY = 0.995
+EPSILON_MIN = 0.1
+EPSILON_FRAME = 1000000
+EPSILON_TRAINING_PERIOD = 50000
+TARGET_UPDATE_RATE = 10000
+ACTION_REPEAT = 4
 
 ################################################################################
 # Define hyperparameters
 ################################################################################
-NUM_HIDDEN_UNITS=100
-LR = 0.001 # learning rate
+NUM_HIDDEN_UNITS = 100
+LR = 0.00025 # learning rate
 NUM_HIDDEN_UNITS = 10
+MOMENTUM = 0.95
 
 ################################################################################
 # Define Environment wrapper
@@ -113,7 +117,6 @@ class QlWorker(object):
         self.sess = sess
 
         self.build_graph()
-        self.epsilon = EPSILON_START
         sess.run(tf.global_variables_initializer())
 
     def build_qn(self):
@@ -137,18 +140,18 @@ class QlWorker(object):
         self.targets = tf.placeholder(tf.float32, [None])
         Qopts = tf.reduce_sum(tf.multiply(self.pred_qvals, self.actions), reduction_indices=1)
         cost = tflearn.mean_square(Qopts, self.targets)
-        optimizer = tf.train.RMSPropOptimizer(LR) # change different optimizer? #TBD
+        optimizer = tf.train.RMSPropOptimizer(LR, decay = MOMENTUM) # change different optimizer
         self.updateModel = optimizer.minimize(cost, var_list=network_params)
 
         # Define updating target model with prediction model
         self.update_target_network_params = \
-                [target_network_params[i].assign(network_params[i]) 
+                [target_network_params[i].assign(network_params[i])
                         for i in range(len(target_network_params))]
 
         return
 
     def pred_qvals(self, state, is_target):
-        if is_target:   
+        if is_target:
             return self.target_qvals.eval(session=self.sess, feed_dict={self.inputs: [state]})
         else:
             return self.qvals.eval(session=self.sess, feed_dict={self.inputs: [state]})
@@ -168,8 +171,11 @@ def train(sess):
 
     env = EnvWrapper(gym.make(GAME), BUFFER_SIZE)
     dqn_agent = QlWorker(env, sess)
+    epsilon = EPSILON_START
+    frame = 0
+    episode = 0
 
-    for episode in range(NUM_EPISODES):
+    while frame < NUM_FRAMES:
         cur_state = env.start_state()
         done = False
 
@@ -179,122 +185,54 @@ def train(sess):
         step = 0
 
         while not done:
-
             # Forward the deep q network, get Q(s,a) values
             # pred_qvals = dqn_agent.pred_qvals(cur_state, False)
             pred_qvals = sess.run(dqn_agent.pred_qvals, feed_dict={dqn_agent.pred_inputs: [cur_state]})
             # Encode the action in a one hot vector
             action = np.zeros([env.num_actions])
-            if np.random.random() < dqn_agent.epsilon:
+            if np.random.random() < epsilon:
                 action_idx = random.randrange(env.num_actions)
                 # Qopt = pred_qvals[action_idx]
             else:
                 action_idx = np.argmax(pred_qvals)
                 # Qopt = np.max(pred_qvals)
             action[action_idx]=1
-            
-            # Get new state and reward from environment
-            new_state, reward, done, info = env.step(action_idx)
-            ep_reward += reward
-            ep_ave_max_q += np.max(pred_qvals)
 
-            target = reward
+            target = 0
+            for i in range(ACTION_REPEAT):
+                # Get new state and reward from environment
+                new_state, reward, done, info = env.step(action_idx)
+                ep_reward += reward
+                ep_ave_max_q += np.max(pred_qvals)
+                target += reward
+
             if not done:
                 # target_state = dqn_agent.pred_qvals(new_state, True)
                 target_qvals = sess.run(dqn_agent.target_qvals, \
                         feed_dict={dqn_agent.target_inputs: [new_state]})
                 target += DISCOUNT * np.max(target_qvals)
-            
+
             # Update network weights
             sess.run(dqn_agent.updateModel, feed_dict={dqn_agent.actions: [action], dqn_agent.targets: [target], dqn_agent.pred_inputs: [cur_state]})
             # dqn_agent.update_model(action, target)
 
             # Update target network
-            sess.run(dqn_agent.update_target_network_params)
+            if frame % TARGET_UPDATE_RATE == 0:
+                sess.run(dqn_agent.update_target_network_params)
+
+            if epsilon > EPSILON_MIN and frame > EPSILON_TRAINING_PERIOD:
+                epsilon -= (EPSILON_START - EPSILON_MIN)/EPSILON_FRAME
 
             cur_state = new_state
             step+=1
-    
+
         # Episode finished, print stats
-        print "Episode: {}  Step: {}  Reward: {}  Qmax: {}  Epsilon: {}".format(episode, \
-                step, ep_reward, ep_ave_max_q/float(step), dqn_agent.epsilon)
-        if episode > 100:
-            dqn_agent.epsilon *= EPSILON_DECAY
-            dqn_agent.epsilon = max(EPSILON_MIN, dqn_agent.epsilon)
-
- 
-
+        episode += 1
+        frame += step
+        print "Episode: {}  Step: {}  Frame: {}  Reward: {}  Qmax: {}  Epsilon: {}".\
+            format(episode, step, frame, ep_reward, ep_ave_max_q/float(step), epsilon)
 
 if __name__ == "__main__":
-
-
     with tf.Session() as sess:
         train(sess)
-
-
-
-
-
-
-
-
-
-
-
-
-# for i in range(num_episodes):
-    # s = env.reset() # Restart game
-    # rAll = 0 # counts the reward
-    # done = False
-    # step = 0
-    # while step < 99:
-        # step += 1
-        # # Choose action greedily, with e chance of random action
-        # a, allQ = predict_using_model(state) # get predicted action, and weights
-        # if np.random.rand(1) < e:
-            # a[0] = env.action_space.sample()
-
-        # #Get new state and reward from environment
-        # s1,r,done,_ = env.step(a[0])
-
-        # #Obtain the Q' values by feeding the new state through our network
-        # Q1 = predict_using_model(s1)
-
-        # #Obtain maxQ' and set our target value for chosen action.
-        # maxQ1 = np.max(Q1)
-        # targetQ = allQ
-        # targetQ[0,a[0]] = r + y*maxQ1
-
-        # #Train our network using target and predicted Q values
-        # # Update weights :)
-
-        # rAll += r
-        # s = s1
-        # if d == True:
-            # #Reduce chance of random action as we train the model.
-            # # Epislon greedy reducing the epsilon :)
-            # e = 1./((i/50) + 10)
-            # break
-    # stepList.append(step)
-    # rList.append(rAll)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
