@@ -134,6 +134,49 @@ class EnvWrapper(object):
 
         return s_t1, r_t, terminal, info
 
+################################################################################
+# Define network
+################################################################################
+class DQN(object):
+
+    def __init__(self, num_actions, scope):
+        self.num_actions = num_actions
+        self.scope = scope
+
+        self.build_dqn()
+        if scope == 'pred':
+            self.build_updater()
+
+    def build_dqn(self):
+        '''Defines the value function model'''
+
+        with tf.variable_scope(self.scope):
+            self.inputs = tf.placeholder(tf.float32, [None] + list(INPUT_SHAPE))
+            net = tflearn.flatten(self.inputs)
+            net = tflearn.fully_connected(net,NUM_HIDDEN_UNITS,activation='relu')
+            self.qvals = tflearn.fully_connected(net, self.num_actions)
+        return
+
+    def build_updater(self):
+        '''Defines the model cost, optimizer and updater'''
+
+        # Define model updater (SGD)
+        self.actions = tf.placeholder(tf.float32, [None, self.num_actions])
+        self.targets = tf.placeholder(tf.float32, [None])
+        Qopts = tf.reduce_sum(tf.multiply(self.qvals, self.actions), reduction_indices=1)
+        cost = tflearn.mean_square(Qopts, self.targets)
+        optimizer = tf.train.RMSPropOptimizer(LR, decay = MOMENTUM) # change different optimizer
+        local_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.scope)
+        self.updateModel = optimizer.minimize(cost, var_list=local_vars)
+
+        return
+    
+    def predict(self, sess, state):
+        return self.qvals.eval(session=sess, feed_dict={self.inputs: [state]})
+
+    def update(self, sess, states, actions, targets):
+        sess.run(self.updateModel, feed_dict={self.inputs: states, self.actions: actions, self.targets: targets})
+
 
 ################################################################################
 # Define worker
@@ -235,51 +278,6 @@ class Worker(object):
             episode += 1
             print "Worker: {}  Episode: {}  Step: {}  Frame: {}  Reward: {}  Qmax: {}  Epsilon: {}".\
                 format(self.thread_id, episode, step, global_frame, ep_reward, ep_ave_max_q/float(step), epsilon)
-
-
-
-################################################################################
-# Define network
-################################################################################
-class DQN(object):
-
-    def __init__(self, num_actions, scope):
-        self.num_actions = num_actions
-        self.scope = scope
-
-        self.build_dqn()
-        if scope == 'pred':
-            self.build_updater()
-
-    def build_dqn(self):
-        '''Defines the value function model'''
-
-        with tf.variable_scope(self.scope):
-            self.inputs = tf.placeholder(tf.float32, [None] + list(INPUT_SHAPE))
-            net = tflearn.flatten(self.inputs)
-            net = tflearn.fully_connected(net,NUM_HIDDEN_UNITS,activation='relu')
-            self.qvals = tflearn.fully_connected(net, self.num_actions)
-        return
-
-    def build_updater(self):
-        '''Defines the model cost, optimizer and updater'''
-
-        # Define model updater (SGD)
-        self.actions = tf.placeholder(tf.float32, [None, self.num_actions])
-        self.targets = tf.placeholder(tf.float32, [None])
-        Qopts = tf.reduce_sum(tf.multiply(self.qvals, self.actions), reduction_indices=1)
-        cost = tflearn.mean_square(Qopts, self.targets)
-        optimizer = tf.train.RMSPropOptimizer(LR, decay = MOMENTUM) # change different optimizer
-        local_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, self.scope)
-        self.updateModel = optimizer.minimize(cost, var_list=local_vars)
-
-        return
-    
-    def predict(self, sess, state):
-        return self.qvals.eval(session=sess, feed_dict={self.inputs: [state]})
-
-    def update(self, sess, states, actions, targets):
-        sess.run(self.updateModel, feed_dict={self.inputs: states, self.actions: actions, self.targets: targets})
 
 
 ################################################################################
