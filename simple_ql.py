@@ -118,6 +118,7 @@ class QlWorker(object):
 
         self.build_graph()
         sess.run(tf.global_variables_initializer())
+        sess.run(self.update_target_network_params)
 
     def build_qn(self):
         inputs = tf.placeholder(tf.float32, [None] + list(INPUT_SHAPE))

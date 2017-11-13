@@ -262,8 +262,8 @@ def actor_learner_thread(thread_id, env, session, graph_ops, num_actions,
             a_t[action_index] = 1
 
             # Scale down epsilon
-            # if epsilon > final_epsilon:
-                # epsilon -= (initial_epsilon - final_epsilon) / anneal_epsilon_timesteps
+            if epsilon > final_epsilon:
+                epsilon -= (initial_epsilon - final_epsilon) / anneal_epsilon_timesteps
 
             # Gym excecutes action in game environment on behalf of actor-learner
             s_t1, r_t, terminal, info = env.step(action_index)
