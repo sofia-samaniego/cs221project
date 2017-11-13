@@ -13,10 +13,6 @@ import tflearn
 import threading
 import time
 
-# from keras.models import Sequential
-# from keras.layers import Dense, Flatten
-# from keras.optimizers import Adam
-
 ################################################################################
 # Define parameters
 ################################################################################
@@ -36,9 +32,7 @@ NUM_THREADS = 6
 ################################################################################
 # Define hyperparameters
 ################################################################################
-NUM_HIDDEN_UNITS = 100
 LR = 0.00025 # learning rate
-NUM_HIDDEN_UNITS = 10
 MOMENTUM = 0.95
 
 ################################################################################
@@ -191,7 +185,6 @@ class Worker(object):
     
     def __init__(self, sess, thread_id, coord, global_frame, env, pred_network, target_network):
         self.sess = sess
-        # print sess._closed
         self.thread_id = thread_id
         self.coord = coord
         self.env = env
@@ -336,6 +329,10 @@ def train(sess):
 
 
 if __name__ == "__main__":
+    start = time.time()
     with tf.Session() as sess:
         train(sess)
+
+    end = time.time()
+    print "Time taken: {}".format(end-start)
 
