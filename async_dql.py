@@ -2,6 +2,7 @@ from __future__ import division
 import sys
 sys.path.append('gym/')
 import gym
+from gym.wrappers import Monitor
 import random
 import numpy as np
 import tensorflow as tf
@@ -12,14 +13,15 @@ from collections import deque
 import tflearn
 import threading
 import time
+import os
 
 ################################################################################
 # Define parameters
 ################################################################################
-GAME = 'Breakout-v0'
+GAME = 'MsPacman-v0'
 BUFFER_SIZE = 4
 INPUT_SHAPE = (BUFFER_SIZE, 84,84)
-NUM_FRAMES = 100000 #50000000
+NUM_FRAMES = 100 #1000 #50000000
 DISCOUNT = 0.99
 EPSILON_START = 1.0
 EPSILON_FRAME = 2000 #1000000
@@ -27,7 +29,11 @@ EPSILON_TRAINING_PERIOD = 100 #50000
 PRED_UPDATE_RATE = 32
 TARGET_UPDATE_RATE = 1000 #10000
 ACTION_REPEAT = 4
-NUM_THREADS = 16
+NUM_THREADS = 4
+NUM_EPISODES_EVAL = 100
+MAX_TO_KEEP = 1 # For the saved models
+TEST_MODE = True
+TEST_PATH = "./trained/qlearning.tflearn.ckpt"
 
 ################################################################################
 # Define hyperparameters
@@ -73,11 +79,13 @@ class EnvWrapper(object):
     of size buffer_size from which environment state is constructed.
     """
 
-    def __init__(self, gym_env, buffer_size):
+    def __init__(self, gym_env, buffer_size, video_dir = None):
         self.env = gym_env
+        if video_dir is not None:
+            self.env = Monitor(env = self.env, directory = videodir, resume = True)
         self.buffer_size = buffer_size
         self.num_actions = gym_env.action_space.n
-
+        # TBD: Workaround for pong and breakout actions
         # Agent available actions, such as LEFT, RIGHT, NOOP, etc...
         self.gym_actions = range(gym_env.action_space.n)
         # Screen buffer of size buffer_size to be able to build
@@ -106,7 +114,7 @@ class EnvWrapper(object):
         2) Rescale image 110 x 84
         3) Crop center 84 x 84 (you can crop top/bottom according to the game)
         """
-        return resize(rgb2gray(observation), (110, 84))[13:110 - 13, :]
+        return resize(rgb2gray(observation), (110, 84), mode='constant')[13:110 - 13, :]
 
     def step(self, action_index):
         """
@@ -170,7 +178,7 @@ class DQN(object):
         self.updateModel = optimizer.minimize(cost, var_list=local_vars)
 
         return
-    
+
     def predict(self, sess, state):
         return self.qvals.eval(session=sess, feed_dict={self.inputs: [state]})
 
@@ -182,9 +190,10 @@ class DQN(object):
 # Define worker
 ################################################################################
 class Worker(object):
-    
-    def __init__(self, sess, thread_id, coord, global_frame, env, pred_network, target_network):
+
+    def __init__(self, sess, saver, thread_id, coord, global_frame, env, pred_network, target_network):
         self.sess = sess
+        self.saver = saver
         self.thread_id = thread_id
         self.coord = coord
         self.env = env
@@ -195,8 +204,8 @@ class Worker(object):
         self.global_frame = global_frame
         self.increment_global_frame = increment_global_frame_op(sess, global_frame)
         self.global_frame_lock = threading.Lock()
-    
-    
+
+
     def work(self):
         """Trains the RL Agent"""
 
@@ -214,7 +223,7 @@ class Worker(object):
             ep_reward = 0
             ep_ave_max_q = 0
             step = 0
-            
+
             state_batch = []
             action_batch = []
             target_batch = []
@@ -271,6 +280,8 @@ class Worker(object):
 
                 # If max step is reached, request all threads to stop
                 if global_frame >= NUM_FRAMES:
+                    # if self.thread_id == 0:
+                    #     saver.save(sess, TEST_PATH, global_step = global_frame)
                     self.coord.request_stop()
 
                 cur_state = new_state
@@ -286,7 +297,7 @@ class Worker(object):
 # Train agent
 ################################################################################
 
-def train(sess):
+def train(sess, saver):
     '''Launches the training by creating parallel threads, launching agents in each thread and starting each agent learning'''
 
     # Create global step counter
@@ -316,7 +327,7 @@ def train(sess):
     workers = []
     threads = []
     for thread_id in range(NUM_THREADS):
-        worker = Worker(sess, thread_id, coord, global_frame, env[thread_id], pred_network, target_network)
+        worker = Worker(sess, saver, thread_id, coord, global_frame, env[thread_id], pred_network, target_network)
         workers.append(worker)
         worker_work = lambda: worker.work()
         t = threading.Thread(target=worker_work)
@@ -326,12 +337,57 @@ def train(sess):
         time.sleep(0.01) # needed?
 
     coord.join(threads)
+    print [v.name for v in tf.trainable_variables()]
+    saver.save(sess, TEST_PATH)
+    #saver.save(sess, "./qlearning.tflearn.ckpt", global_step = global_frame)
 
+def evaluate(sess, saver):
+
+    monitor_env = gym.make(GAME)
+    env = EnvWrapper(monitor_env, BUFFER_SIZE)
+    num_actions = env.num_actions
+    pred_network = DQN(num_actions, 'pred')
+    target_network = DQN(num_actions, 'target')
+
+    # Init variables
+    sess.run(tf.global_variables_initializer())
+    first_update = copy_vars(sess, 'pred','target')
+    first_update()
+    #new_saver = tf.train.import_meta_graph(TEST_PATH+".meta")
+    #new_saver.restore(sess, tf.train.latest_checkpoint(TEST_PATH))
+
+
+    #print [v.name for v in tf.trainable_variables()]
+    saver.restore(sess, TEST_PATH)
+    print("Restored model weights")
+
+    # monitor_env.monitor.start("qlearning/eval")
+
+
+    for episode in range(NUM_EPISODES_EVAL):
+        cur_state = env.start_state()
+        ep_reward = 0
+        done = False
+        while not done:
+            # monitor_env.render()
+
+            pred_qvals = pred_network.predict(sess, cur_state)
+            action_idx = np.argmax(pred_qvals)
+            new_state, reward, done, info = env.step(action_idx)
+            ep_reward += reward
+
+        print(ep_reward)
+
+    # monitor_env.monitor.close()
 
 if __name__ == "__main__":
     start = time.time()
     with tf.Session() as sess:
-        train(sess)
+        saver = tf.train.Saver(max_to_keep = MAX_TO_KEEP)
+        if TEST_MODE:
+            evaluate(sess, saver)
+        else:
+            train(sess, saver)
 
     end = time.time()
     print "Time taken: {}".format(end-start)
