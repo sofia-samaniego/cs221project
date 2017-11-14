@@ -19,15 +19,15 @@ import time
 GAME = 'Breakout-v0'
 BUFFER_SIZE = 4
 INPUT_SHAPE = (BUFFER_SIZE, 84,84)
-NUM_FRAMES = 100000 #50000000
+NUM_FRAMES = 10000 #50000000
 DISCOUNT = 0.99
 EPSILON_START = 1.0
-EPSILON_FRAME = 2000 #1000000
-EPSILON_TRAINING_PERIOD = 100 #50000
+EPSILON_FRAME = 200 #1000000
+EPSILON_TRAINING_PERIOD = 10 #50000
 PRED_UPDATE_RATE = 32
-TARGET_UPDATE_RATE = 1000 #10000
+TARGET_UPDATE_RATE = 100 #10000
 ACTION_REPEAT = 4
-NUM_THREADS = 16
+# NUM_THREADS = 16
 
 ################################################################################
 # Define hyperparameters
@@ -286,7 +286,7 @@ class Worker(object):
 # Train agent
 ################################################################################
 
-def train(sess):
+def train(sess, NUM_THREADS):
     '''Launches the training by creating parallel threads, launching agents in each thread and starting each agent learning'''
 
     # Create global step counter
@@ -329,10 +329,24 @@ def train(sess):
 
 
 if __name__ == "__main__":
-    start = time.time()
-    with tf.Session() as sess:
-        train(sess)
+    # threads = [1,2,4,6,8,12,16,24,32, 64]
+    threads = [32]
+    thread_times = []
+    for thread in threads:
+        start = time.time()
+        with tf.Session() as sess:
+            train(sess, thread)
 
-    end = time.time()
-    print "Time taken: {}".format(end-start)
+        end = time.time()
+        thread_times.append(end-start)
+        print "Time taken: {}".format(end-start)
+
+    for i, t in enumerate(threads):
+        print "No. of threads: {}, time: []".format(t,thread_times[i])
+
+    # plt.plot(threads, thread_times)
+    # plt.xlabel('Number of threads')
+    # plt.ylabel('Time (s)')
+    # plt.title("Alex's Mac")
+    # plt.savefig('benchmarking/threads.png')
 
