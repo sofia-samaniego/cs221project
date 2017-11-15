@@ -29,8 +29,7 @@ import time
 from skimage.transform import resize
 from skimage.color import rgb2gray
 from collections import deque
-import sys
-sys.path.append('gym/')
+
 import gym
 import tensorflow as tf
 import tflearn
@@ -50,28 +49,24 @@ except Exception:
 # Change that value to test instead of train
 testing = False
 # Model path (to load when testing)
-test_model_path = './trained/qlearning.tflearn.ckpt'
+test_model_path = './tflearn_trained/qlearning.ckpt'
 # Atari game to learn
 # You can also try: 'Breakout-v0', 'Pong-v0', 'SpaceInvaders-v0', ...
-game = 'Breakout-v0'
-# game = 'Breakout-v0'
+game = 'MsPacman-v0'
 # Learning threads
-n_threads = 1
-# n_threads = 8
+n_threads = 2
 
 # =============================
 #   Training Parameters
 # =============================
 # Max training steps
-# Number of episodes
-TMAX = 50#80000000
-#TMAX = 100000
+TMAX = 100# 80000000
 # Current training step
 T = 0
 # Consecutive screen frames when performing training
 action_repeat = 4
 # Async gradient update frequency of each learning thread
-I_AsyncUpdate = 1 #5
+I_AsyncUpdate = 5
 # Timestep to reset the target network
 I_target = 40000
 # Learning rate
@@ -81,7 +76,6 @@ gamma = 0.99
 # Number of timesteps to anneal epsilon
 anneal_epsilon_timesteps = 400000
 
-NUM_HIDDEN_UNITS = 10
 # =============================
 #   Utils Parameters
 # =============================
@@ -91,7 +85,7 @@ show_training = True
 summary_dir = '/tmp/tflearn_logs/'
 summary_interval = 100
 checkpoint_path = 'qlearning.tflearn.ckpt'
-checkpoint_interval = 2000
+checkpoint_interval = 20
 # Number of episodes to run gym evaluation
 num_eval_episodes = 100
 
@@ -106,18 +100,12 @@ def build_dqn(num_actions, action_repeat):
     inputs = tf.placeholder(tf.float32, [None, action_repeat, 84, 84])
     # Inputs shape: [batch, channel, height, width] need to be changed into
     # shape [batch, height, width, channel]
-    # net = tf.transpose(inputs, [0, 2, 3, 1])
-    # net = tflearn.conv_2d(net, 32, 8, strides=4, activation='relu')
-    # net = tflearn.conv_2d(net, 64, 4, strides=2, activation='relu')
-    # net = tflearn.fully_connected(net, 256, activation='relu')
-    # q_values = tflearn.fully_connected(net, num_actions)
-    # return inputs, q_values
-
-    # inputs = tf.placeholder(tf.float32, [None] + list(INPUT_SHAPE))
-    net = tflearn.flatten(inputs)
-    net = tflearn.fully_connected(net,NUM_HIDDEN_UNITS,activation='relu')
-    qvals = tflearn.fully_connected(net, num_actions)
-    return inputs, qvals
+    net = tf.transpose(inputs, [0, 2, 3, 1])
+    net = tflearn.conv_2d(net, 32, 8, strides=4, activation='relu')
+    net = tflearn.conv_2d(net, 64, 4, strides=2, activation='relu')
+    net = tflearn.fully_connected(net, 256, activation='relu')
+    q_values = tflearn.fully_connected(net, num_actions)
+    return inputs, q_values
 
 
 # =============================
@@ -228,14 +216,11 @@ def actor_learner_thread(thread_id, env, session, graph_ops, num_actions,
     a_batch = []
     y_batch = []
 
-    # final_epsilon = sample_final_epsilon()
-    # initial_epsilon = 1.0
+    final_epsilon = sample_final_epsilon()
+    initial_epsilon = 1.0
     epsilon = 1.0
-    epsilon_min = 0.01
-    epsilon_decay = 0.995
 
-    # print("Thread " + str(thread_id) + " - Final epsilon: " + str(final_epsilon))
-    print("Thread " + str(thread_id) + " - Final epsilon: " + str(epsilon))
+    print("Thread " + str(thread_id) + " - Final epsilon: " + str(final_epsilon))
 
     time.sleep(3*thread_id)
     t = 0
@@ -305,8 +290,8 @@ def actor_learner_thread(thread_id, env, session, graph_ops, num_actions,
                 y_batch = []
 
             # Save model progress
-            #if t % checkpoint_interval == 0:
-            #    saver.save(session, "qlearning.ckpt", global_step=t)
+            if t % checkpoint_interval == 0:
+                saver.save(session, "./tflearn_trained/qlearning.ckpt", global_step=t)
 
             # Print end of episode stats
             if terminal:
@@ -319,9 +304,6 @@ def actor_learner_thread(thread_id, env, session, graph_ops, num_actions,
                       (episode_ave_max_q/float(ep_t)),
                       " Epsilon: %.5f" % epsilon, " Epsilon progress: %.6f" %
                       (t/float(anneal_epsilon_timesteps)))
-                if T > 20000:
-                    epsilon *= epsilon_decay
-                    epsilon = max(epsilon, epsilon_min)
                 break
 
 
@@ -440,8 +422,8 @@ def evaluation(session, graph_ops, saver):
     """
     Evaluate a model.
     """
-    #saver.restore(session, test_model_path)
-    #print("Restored model weights from ", test_model_path)
+    saver.restore(session, test_model_path)
+    print("Restored model weights from ", test_model_path)
     monitor_env = gym.make(game)
     monitor_env.monitor.start("qlearning/eval")
 

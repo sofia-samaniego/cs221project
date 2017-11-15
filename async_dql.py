@@ -347,19 +347,36 @@ def evaluate(sess, saver):
     env = EnvWrapper(monitor_env, BUFFER_SIZE)
     num_actions = env.num_actions
     pred_network = DQN(num_actions, 'pred')
-    target_network = DQN(num_actions, 'target')
+    # target_network = DQN(num_actions, 'target')
 
     # Init variables
-    sess.run(tf.global_variables_initializer())
-    first_update = copy_vars(sess, 'pred','target')
-    first_update()
+    # sess.run(tf.global_variables_initializer())
+    # first_update = copy_vars(sess, 'pred','target')
+    # first_update()
     #new_saver = tf.train.import_meta_graph(TEST_PATH+".meta")
     #new_saver.restore(sess, tf.train.latest_checkpoint(TEST_PATH))
 
 
-    #print [v.name for v in tf.trainable_variables()]
-    saver.restore(sess, TEST_PATH)
+    print [v.name for v in tf.trainable_variables()]
+
+    new_saver = tf.train.import_meta_graph(TEST_PATH+'.meta')
+    new_saver.restore(sess, TEST_PATH)
+    # print "inputs", pred_network.inputs.eval()
+    # var = tf.get_default_graph().get_tensor_by_name("pred/Conv2D/b:0")
+    # print "var: ", var.eval()
+    # saver.restore(sess, TEST_PATH)
+    print [v.name for v in tf.trainable_variables()]
+    tf_vars = [v for v in tf.trainable_variables()]
+    print "length: ", len(tf_vars)
+    for i in range(len(tf_vars)//2):
+        v1 = tf_vars[i]
+        print type(v1)
+        v2 = tf_vars[2*i]
+        v1.assign(v2)
+
     print("Restored model weights")
+    # print "var: ", var.eval()
+    sys.exit(0)
 
     # monitor_env.monitor.start("qlearning/eval")
 
