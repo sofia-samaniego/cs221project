@@ -18,7 +18,7 @@ import os
 ################################################################################
 # Define parameters
 ################################################################################
-GAME = 'VideoPinball-v0'
+GAME = 'SpaceInvaders-v0'
 BUFFER_SIZE = 4
 INPUT_SHAPE = (BUFFER_SIZE, 84,84)
 NUM_FRAMES = 10000000 #50000000
@@ -33,6 +33,7 @@ NUM_THREADS = 4
 NUM_EPISODES_EVAL = 100
 MAX_TO_KEEP = 1  # For the saved models
 TEST_MODE = False
+PLAY_RANDOM_MODE = True
 TEST_PATH = "./trained/qlearning.tflearn.ckpt"
 
 ################################################################################
@@ -349,7 +350,14 @@ def train(sess, saver):
     saver.save(sess, TEST_PATH)
     #saver.save(sess, "./qlearning.tflearn.ckpt", global_step = global_frame)
 
+################################################################################
+# Evaluate trained model
+################################################################################
+
 def evaluate(sess, saver):
+
+    trained_eval = './data/trained_eval.csv'
+    open(trained_eval, 'w').close()
 
     monitor_env = gym.make(GAME)
     env = EnvWrapper(monitor_env, BUFFER_SIZE)
@@ -400,8 +408,38 @@ def evaluate(sess, saver):
             cur_state = new_state
 
         print(ep_reward)
+        with open(test_eval,'a') as f:
+            write_string = "{}\n".format(ep_reward)
+            f.write(write_string)
 
     monitor_env.monitor.close()
+
+################################################################################
+# Play at random
+################################################################################
+
+def evaluate_random():
+    random_eval = './data/random_eval.csv'
+    open(random_eval, 'w').close()
+
+    monitor_env = gym.make(GAME)
+    env = EnvWrapper(monitor_env, BUFFER_SIZE)
+    for episode in range(NUM_EPISODES_EVAL):
+        monitor_env.reset()
+        cur_state = env.start_state()
+        ep_reward = 0
+        done = False
+        while not done:
+            monitor_env.render()
+            action_idx = random.randrange(env.num_actions)
+            new_state, reward, done, info = env.step(action_idx)
+            ep_reward += reward
+            cur_state = new_state
+
+        print(ep_reward)
+        with open(random_eval,'a') as f:
+            write_string = "{}\n".format(ep_reward)
+            f.write(write_string)
 
 if __name__ == "__main__":
     start = time.time()
@@ -409,6 +447,8 @@ if __name__ == "__main__":
         saver = tf.train.Saver(max_to_keep = MAX_TO_KEEP)
         if TEST_MODE:
             evaluate(sess, saver)
+        elif PLAY_RANDOM_MODE:
+            evaluate_random()
         else:
             train(sess, saver)
 
