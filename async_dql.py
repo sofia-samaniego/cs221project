@@ -18,21 +18,21 @@ import os
 ################################################################################
 # Define parameters
 ################################################################################
-GAME = 'MsPacman-v0'
+GAME = 'VideoPinball-v0'
 BUFFER_SIZE = 4
 INPUT_SHAPE = (BUFFER_SIZE, 84,84)
-NUM_FRAMES = 100 #1000 #50000000
+NUM_FRAMES = 10000000 #50000000
 DISCOUNT = 0.99
 EPSILON_START = 1.0
-EPSILON_FRAME = 2000 #1000000
-EPSILON_TRAINING_PERIOD = 100 #50000
+EPSILON_FRAME = 200000 #1000000
+EPSILON_TRAINING_PERIOD = 10000 #50000
 PRED_UPDATE_RATE = 32
-TARGET_UPDATE_RATE = 1000 #10000
+TARGET_UPDATE_RATE = 2000 #10000
 ACTION_REPEAT = 4
 NUM_THREADS = 4
 NUM_EPISODES_EVAL = 100
-MAX_TO_KEEP = 1 # For the saved models
-TEST_MODE = True
+MAX_TO_KEEP = 1  # For the saved models
+TEST_MODE = False
 TEST_PATH = "./trained/qlearning.tflearn.ckpt"
 
 ################################################################################
@@ -213,6 +213,9 @@ class Worker(object):
         episode = 0
 
         print 'Starting worker {} with final epsilon {}'.format(self.thread_id,self.final_epsilon)
+        thread_file = './data/worker_{}.csv'.format(self.thread_id)
+        with open(thread_file, 'w') as f:
+            f.write('reward, epsilon, ave_max_q, global_frame\n')
 
         while not self.coord.should_stop():
 
@@ -291,6 +294,11 @@ class Worker(object):
             episode += 1
             print "Worker: {}  Episode: {}  Step: {}  Frame: {}  Reward: {}  Qmax: {}  Epsilon: {}".\
                 format(self.thread_id, episode, step, global_frame, ep_reward, ep_ave_max_q/float(step), epsilon)
+            with open(thread_file,'a') as f:
+                write_string = "{}, {}, {}, {}\n".format(ep_reward, epsilon, ep_ave_max_q/float(step), global_frame)
+                f.write(write_string)
+
+
 
 
 ################################################################################
@@ -378,11 +386,12 @@ def evaluate(sess, saver):
 
 
     for episode in range(NUM_EPISODES_EVAL):
+        monitor_env.reset()
         cur_state = env.start_state()
         ep_reward = 0
         done = False
         while not done:
-            # monitor_env.render()
+            monitor_env.render()
 
             pred_qvals = pred_network.predict(sess, cur_state)
             action_idx = np.argmax(pred_qvals)
@@ -392,7 +401,7 @@ def evaluate(sess, saver):
 
         print(ep_reward)
 
-    # monitor_env.monitor.close()
+    monitor_env.monitor.close()
 
 if __name__ == "__main__":
     start = time.time()
