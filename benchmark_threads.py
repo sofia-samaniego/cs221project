@@ -330,7 +330,7 @@ def train(sess, NUM_THREADS):
 
 if __name__ == "__main__":
     # threads = [1,2,4,6,8,12,16,24,32, 64]
-    threads = [32]
+    threads = [16]
     thread_times = []
     for thread in threads:
         start = time.time()

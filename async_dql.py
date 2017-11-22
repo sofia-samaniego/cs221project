@@ -32,9 +32,9 @@ ACTION_REPEAT = 4
 NUM_THREADS = 4
 NUM_EPISODES_EVAL = 100
 MAX_TO_KEEP = 1  # For the saved models
-TEST_MODE = False
-PLAY_RANDOM_MODE = True
-TEST_PATH = "./trained/qlearning.tflearn.ckpt"
+TEST_MODE = True
+PLAY_RANDOM_MODE = False
+TEST_PATH = "./trained/aws/SpaceInvaders/15-11-17/qlearning.tflearn.ckpt"
 
 ################################################################################
 # Define hyperparameters
@@ -357,8 +357,11 @@ def train(sess, saver):
 def evaluate(sess, saver):
 
     trained_eval = './data/trained_eval.csv'
-    open(trained_eval, 'w').close()
+    with open(trained_eval, 'w') as f:
+        f.write('reward\n')
 
+    dummy = tf.Variable(0, name='dummy')
+    sess.run(tf.global_variables_initializer())
     monitor_env = gym.make(GAME)
     env = EnvWrapper(monitor_env, BUFFER_SIZE)
     num_actions = env.num_actions
@@ -366,29 +369,37 @@ def evaluate(sess, saver):
     target_network = DQN(num_actions, 'target')
 
     # Init variables
-    sess.run(tf.global_variables_initializer())
+    # sess.run(tf.global_variables_initializer())
     # first_update = copy_vars(sess, 'pred','target')
     # first_update()
 
-    print [v.name for v in tf.trainable_variables()]
+    # print [v.name for v in tf.trainable_variables()]
 
-    new_saver = tf.train.import_meta_graph(TEST_PATH+'.meta')
-    new_saver.restore(sess, TEST_PATH)
+    # new_saver = tf.train.import_meta_graph(TEST_PATH+'.meta')
+    # new_saver.restore(sess, TEST_PATH)
     # var = tf.get_default_graph().get_tensor_by_name("pred/Conv2D/b:0")
     # print "var: ", var.eval()
-    # saver.restore(sess, TEST_PATH)
-    print [v.name for v in tf.trainable_variables()]
+    print tf.train.latest_checkpoint("./trained/aws/SpaceInvaders/15-11-17/")
+    saver.restore(sess, tf.train.latest_checkpoint("./trained/aws/SpaceInvaders/15-11-17/"))
+    # print [v.name for v in tf.trainable_variables()]
     tf_vars = [v for v in tf.trainable_variables()]
-    mid = len(tf_vars)//2
-    for i in range(mid):
-        v1 = tf_vars[i]
-        v2 = tf_vars[mid+i]
-        assign_op = v1.assign(v2)
-        sess.run(assign_op)
-        # v2.assign(v1)
+    # mid = len(tf_vars)//2
+    num = 2
+    var1 = tf_vars[num]
+#     var2 = tf_vars[mid+num]
+    # print var1.name, ": ", var1.eval()
+    # print var2.name, ": ", var2.eval()
+    # for i in range(mid):
+    #     v1 = tf_vars[i]
+    #     v2 = tf_vars[mid+i]
+    #     assign_op = v2.assign(v1)
+    #     sess.run(assign_op)
+    #     # v2.assign(v1)
 
     print("Restored model weights")
-    # print "var: ", var.eval()
+    print var1.name, ": ", var1.eval()
+    # print var2.name, ": ", var2.eval()
+    # print "check: ", tf_vars[0] == tf_vars[mid]
 
     # monitor_env.monitor.start("qlearning/eval")
 
@@ -399,7 +410,7 @@ def evaluate(sess, saver):
         ep_reward = 0
         done = False
         while not done:
-            monitor_env.render()
+            # monitor_env.render()
 
             pred_qvals = pred_network.predict(sess, cur_state)
             action_idx = np.argmax(pred_qvals)
@@ -408,11 +419,11 @@ def evaluate(sess, saver):
             cur_state = new_state
 
         print(ep_reward)
-        with open(test_eval,'a') as f:
+        with open(trained_eval,'a') as f:
             write_string = "{}\n".format(ep_reward)
             f.write(write_string)
 
-    monitor_env.monitor.close()
+    # monitor_env.monitor.close()
 
 ################################################################################
 # Play at random
