@@ -29,14 +29,14 @@ EPSILON_TRAINING_PERIOD = 50000
 PRED_UPDATE_RATE = 32
 TARGET_UPDATE_RATE = 10000
 CHECKPOINT_UPDATE_RATE = 10000
-ACTION_REPEAT = 4
-NUM_THREADS = 4
-NUM_EPISODES_EVAL = 100
+ACTION_REPEAT = 1 # don't need!!
+NUM_THREADS = 16
+NUM_EPISODES_EVAL = 200
 MAX_TO_KEEP = 1  # For the saved models
 TEST_MODE = False
 PLAY_RANDOM_MODE = False
-TEST_PATH = "./trained/aws/SpaceInvaders/15-11-17/qlearning.tflearn.ckpt"
-LOG_PATH = "./checkpointing/"
+# TEST_PATH = "./trained/aws/SpaceInvaders/15-11-17/qlearning.tflearn.ckpt"
+LOG_PATH = "./trained/"
 
 ################################################################################
 # Define hyperparameters
