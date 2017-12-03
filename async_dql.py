@@ -21,20 +21,22 @@ import os
 GAME = 'SpaceInvaders-v0'
 BUFFER_SIZE = 4
 INPUT_SHAPE = (BUFFER_SIZE, 84,84)
-NUM_FRAMES = 10000000 #50000000
+NUM_FRAMES = 40000000
 DISCOUNT = 0.99
 EPSILON_START = 1.0
-EPSILON_FRAME = 200000 #1000000
-EPSILON_TRAINING_PERIOD = 10000 #50000
+EPSILON_FRAME = 1000000
+EPSILON_TRAINING_PERIOD = 50000
 PRED_UPDATE_RATE = 32
-TARGET_UPDATE_RATE = 2000 #10000
-ACTION_REPEAT = 4
-NUM_THREADS = 4
-NUM_EPISODES_EVAL = 100
+TARGET_UPDATE_RATE = 10000
+CHECKPOINT_UPDATE_RATE = 10000
+ACTION_REPEAT = 1 # don't need!!
+NUM_THREADS = 16
+NUM_EPISODES_EVAL = 200
 MAX_TO_KEEP = 1  # For the saved models
 TEST_MODE = False
-PLAY_RANDOM_MODE = True
-TEST_PATH = "./trained/qlearning.tflearn.ckpt"
+PLAY_RANDOM_MODE = False
+# TEST_PATH = "./trained/aws/SpaceInvaders/15-11-17/qlearning.tflearn.ckpt"
+LOG_PATH = "./trained/"
 
 ################################################################################
 # Define hyperparameters
@@ -212,6 +214,8 @@ class Worker(object):
 
         epsilon = EPSILON_START
         episode = 0
+        last_target_update = 0
+        last_checkpoint_update = 0
 
         print 'Starting worker {} with final epsilon {}'.format(self.thread_id,self.final_epsilon)
         thread_file = './data/worker_{}.csv'.format(self.thread_id)
@@ -273,19 +277,24 @@ class Worker(object):
                     self.pred_network.update(self.sess, state_batch, action_batch, target_batch)
                     state_batch, action_batch, target_batch = [], [] ,[]
 
-                # Update target network
-                if global_frame % TARGET_UPDATE_RATE == 0:
-                    print "Updating target network..."
-                    self.target_update()
-
                 # Update epsilon
                 if epsilon > self.final_epsilon and global_frame > EPSILON_TRAINING_PERIOD:
                     epsilon -= (EPSILON_START - self.final_epsilon)/EPSILON_FRAME
 
+                if self.thread_id == 0:
+                    # Update target network
+                    if global_frame - last_target_update >= TARGET_UPDATE_RATE:
+                        print "Updating target network..."
+                        self.target_update()
+                        last_target_update = global_frame
+
+                    if global_frame - last_checkpoint_update >= CHECKPOINT_UPDATE_RATE:
+                        saver.save(sess, os.path.join(LOG_PATH, '{}-sess.ckpt'.format(GAME)), global_step=global_frame)
+                        print "Session saved to {}".format(LOG_PATH)
+                        last_checkpoint_update = global_frame
+                
                 # If max step is reached, request all threads to stop
                 if global_frame >= NUM_FRAMES:
-                    # if self.thread_id == 0:
-                    #     saver.save(sess, TEST_PATH, global_step = global_frame)
                     self.coord.request_stop()
 
                 cur_state = new_state
@@ -341,14 +350,16 @@ def train(sess, saver):
         worker_work = lambda: worker.work()
         t = threading.Thread(target=worker_work)
         threads.append(t)
-        # t.daemon=True # WHAT
+        t.daemon=True # WHAT
         t.start()
         time.sleep(0.01) # needed?
 
     coord.join(threads)
-    print [v.name for v in tf.trainable_variables()]
-    saver.save(sess, TEST_PATH)
-    #saver.save(sess, "./qlearning.tflearn.ckpt", global_step = global_frame)
+    saver.save(sess, os.path.join(LOG_PATH, '{}-sess.ckpt'.format(GAME)), global_step=global_frame)
+    print "Final session saved to {}".format(LOG_PATH)
+
+    # Now let's just test it straight away to avoid saving/loading issues
+    evaluate_model(sess, pred_network)
 
 ################################################################################
 # Evaluate trained model
@@ -356,8 +367,14 @@ def train(sess, saver):
 
 def evaluate(sess, saver):
 
+    global_frame = tf.Variable(name='global_frame', initial_value=0, trainable=False, dtype=tf.int32)
+    
     trained_eval = './data/trained_eval.csv'
-    open(trained_eval, 'w').close()
+    with open(trained_eval, 'w') as f:
+        f.write('reward\n')
+
+    # sess.run(tf.global_variables_initializer())
+    # sess.run(tf.local_variables_initializer())
 
     monitor_env = gym.make(GAME)
     env = EnvWrapper(monitor_env, BUFFER_SIZE)
@@ -366,29 +383,39 @@ def evaluate(sess, saver):
     target_network = DQN(num_actions, 'target')
 
     # Init variables
-    sess.run(tf.global_variables_initializer())
+    # sess.run(tf.global_variables_initializer())
+    # sess.run(tf.local_variables_initializer())
     # first_update = copy_vars(sess, 'pred','target')
     # first_update()
 
-    print [v.name for v in tf.trainable_variables()]
+    # print [v.name for v in tf.trainable_variables()]
 
-    new_saver = tf.train.import_meta_graph(TEST_PATH+'.meta')
-    new_saver.restore(sess, TEST_PATH)
+    # new_saver = tf.train.import_meta_graph(TEST_PATH+'.meta')
+    # new_saver.restore(sess, TEST_PATH)
     # var = tf.get_default_graph().get_tensor_by_name("pred/Conv2D/b:0")
     # print "var: ", var.eval()
-    # saver.restore(sess, TEST_PATH)
+    # print tf.train.latest_checkpoint("./trained/aws/SpaceInvaders/15-11-17/")
+    # saver.restore(sess, tf.train.latest_checkpoint("./trained/aws/SpaceInvaders/15-11-17/"))
+    saver.restore(sess, TEST_PATH)
     print [v.name for v in tf.trainable_variables()]
     tf_vars = [v for v in tf.trainable_variables()]
     mid = len(tf_vars)//2
-    for i in range(mid):
-        v1 = tf_vars[i]
-        v2 = tf_vars[mid+i]
-        assign_op = v1.assign(v2)
-        sess.run(assign_op)
-        # v2.assign(v1)
+    num = 1
+    var1 = tf_vars[num]
+    # var2 = tf_vars[mid+num]
+    # print var1.name, ": ", var1.eval()
+    # print var2.name, ": ", var2.eval()
+    # for i in range(mid):
+    #     v1 = tf_vars[i]
+    #     v2 = tf_vars[mid+i]
+    #     assign_op = v2.assign(v1)
+    #     sess.run(assign_op)
+    #     # v2.assign(v1)
 
     print("Restored model weights")
-    # print "var: ", var.eval()
+    print var1.name, ": ", var1.eval()
+    # print var2.name, ": ", var2.eval()
+    # print "check: ", tf_vars[0] == tf_vars[mid]
 
     # monitor_env.monitor.start("qlearning/eval")
 
@@ -399,7 +426,7 @@ def evaluate(sess, saver):
         ep_reward = 0
         done = False
         while not done:
-            monitor_env.render()
+            # monitor_env.render()
 
             pred_qvals = pred_network.predict(sess, cur_state)
             action_idx = np.argmax(pred_qvals)
@@ -408,11 +435,41 @@ def evaluate(sess, saver):
             cur_state = new_state
 
         print(ep_reward)
-        with open(test_eval,'a') as f:
+        with open(trained_eval,'a') as f:
             write_string = "{}\n".format(ep_reward)
             f.write(write_string)
 
-    monitor_env.monitor.close()
+    # monitor_env.monitor.close()
+
+def evaluate_model(sess, pred_network):
+
+    monitor_env = gym.make(GAME)
+    env = EnvWrapper(monitor_env, BUFFER_SIZE)
+    trained_eval = './data/trained_eval.csv'
+    with open(trained_eval, 'w') as f:
+        f.write('reward\n')
+
+    for episode in range(NUM_EPISODES_EVAL):
+        monitor_env.reset()
+        cur_state = env.start_state()
+        ep_reward = 0
+        done = False
+        while not done:
+            # monitor_env.render()
+
+            pred_qvals = pred_network.predict(sess, cur_state)
+            action_idx = np.argmax(pred_qvals)
+            new_state, reward, done, info = env.step(action_idx)
+            ep_reward += reward
+            cur_state = new_state
+
+        print(ep_reward)
+        with open(trained_eval,'a') as f:
+            write_string = "{}\n".format(ep_reward)
+            f.write(write_string)
+
+    # monitor_env.monitor.close()
+
 
 ################################################################################
 # Play at random
