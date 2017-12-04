@@ -1,6 +1,6 @@
 from __future__ import division
 import sys
-sys.path.append('gym/')
+sys.path.append('~/gym/')
 import gym
 from gym.wrappers import Monitor
 import random
@@ -18,31 +18,30 @@ import os
 ################################################################################
 # Define parameters
 ################################################################################
-
-GAME = 'MsPacman-v0'
-# GAME = 'Breakout-v0'
+if len(sys.argv) < 3:
+    print "Usage:\n\t python {} [game] [beta]".format(sys.argv[0])
+    sys.exit()
+GAME = sys.argv[1] #'Breakout-v0'
 BUFFER_SIZE = 4
 INPUT_SHAPE = (BUFFER_SIZE, 84,84)
 BATCH_INPUT_SHAPE = (None, BUFFER_SIZE, 84, 84)
-NUM_FRAMES_GREEDY = 250000
-NUM_FRAMES_IM = 1000 #50000000
+NUM_FRAMES_GREEDY = 500000
+NUM_FRAMES_IM = 40000000 #50000000
 DISCOUNT = 0.99
 EPSILON_START = 1.0
-EPSILON_FRAME = 200000 #1000000
-EPSILON_TRAINING_PERIOD = 10000 #50000
+EPSILON_FRAME = 1000000
+EPSILON_TRAINING_PERIOD = 100000 #50000
 PRED_UPDATE_RATE = 32
-TARGET_UPDATE_RATE = 2000 #10000
-TEACHER_UPDATE_RATE = 5
-CHECKPOINT_UPDATE_RATE = 10000
-INT_REWARD_DECAY = 10000
-NUM_THREADS = 2
-NUM_EPISODES_EVAL = 1
+TARGET_UPDATE_RATE = 50000
+TEACHER_UPDATE_RATE = 50000
+CHECKPOINT_UPDATE_RATE = 1000000
+INT_REWARD_DECAY = 0.01 # not used atm
+NUM_THREADS = 8
+NUM_EPISODES_EVAL = 200
 MAX_TO_KEEP = 1  # For the saved models
 TEST_MODE = False
 PLAY_RANDOM_MODE = False
-SHOW_TRAINING = True
-# TEST_PATH = "./trained/qlearning.tflearn.ckpt"
-LOG_PATH = "./trained/"
+SHOW_TRAINING = False
 NUM_HIDDEN_ENCODER = 512
 
 ################################################################################
@@ -51,8 +50,11 @@ NUM_HIDDEN_ENCODER = 512
 
 LR = 0.00025 # learning rate
 MOMENTUM = 0.95
-BETA = 0.1
+BETA = float(sys.argv[2]) #0.1
 LEARNING_RATE_ENC = 0.001
+
+LOG_PATH = "./trained/" + GAME + '/' + str(BETA) + '/'
+DATA_PATH = "./data/" + GAME + '/' + str(BETA) + '/'
 
 ################################################################################
 # Define helper functions
@@ -307,7 +309,7 @@ class StatePredictor(object):
 ################################################################################
 class GreedyWorker(object):
 
-    def __init__(self, sess, saver, thread_id, coord, global_frame, global_state_batch, global_new_state_batch, global_action_batch, env, pred_network, target_network):
+    def __init__(self, sess, saver, thread_id, coord, global_frame, env, pred_network, target_network, encoder_network, teacher_network):
         self.sess = sess
         self.saver = saver
         self.thread_id = thread_id
@@ -316,14 +318,12 @@ class GreedyWorker(object):
         self.pred_network = pred_network
         self.target_network = target_network
         self.target_update = copy_vars(sess, 'pred', 'target')
+        self.encoder_network = encoder_network
+        self.teacher_network = teacher_network
         self.final_epsilon = sample_final_epsilon()
         self.global_frame = global_frame
-        self.global_state_batch = global_state_batch
-        self.global_action_batch = global_action_batch
-        self.global_new_state_batch = global_new_state_batch
         self.increment_global_frame = increment_global_frame_op(sess, global_frame)
         self.global_frame_lock = threading.Lock()
-        self.global_batches_lock = threading.Lock()
 
     def work(self):
 
@@ -331,10 +331,10 @@ class GreedyWorker(object):
         episode = 0
         last_target_update = 0
         last_checkpoint_update = 0
+        worker_step = 0
 
-        print('I am thread number %s'%(threading.current_thread().name))
         print 'Starting greedy worker {} with final epsilon {}'.format(self.thread_id,self.final_epsilon)
-        thread_file = './data/greedy_worker_{}.csv'.format(self.thread_id)
+        thread_file = DATA_PATH + 'greedy_worker_{}.csv'.format(self.thread_id)
         with open(thread_file, 'w') as f:
             f.write('reward, epsilon, ave_max_q, global_frame\n')
 
@@ -397,6 +397,12 @@ class GreedyWorker(object):
                     self.pred_network.update(self.sess, state_batch, action_batch, target_batch)
                     state_batch, action_batch, target_batch = [], [] ,[]
 
+                # Update encoder
+                if worker_step % TEACHER_UPDATE_RATE == 0:
+                    self.encoder_network.update(self.sess, state_batch_M, new_state_batch_M, action_batch_M)
+                    self.teacher_network.update(self.sess, state_batch_M, new_state_batch_M, action_batch_M)
+                    state_batch_M, new_state_batch_M, action_batch_M = [], [], []
+
                 # Update epsilon
                 if epsilon > self.final_epsilon and global_frame > EPSILON_TRAINING_PERIOD:
                     epsilon -= (EPSILON_START - self.final_epsilon)/EPSILON_FRAME
@@ -405,8 +411,6 @@ class GreedyWorker(object):
                     # Update target network
                     if global_frame - last_target_update >= TARGET_UPDATE_RATE:
                         print "Updating target network..."
-                        print "STILL RUNNING global frame {}, last_target_update {}, target {}".format(global_frame, last_target_update, TARGET_UPDATE_RATE)
-                        print('I am thread number %s'%(threading.current_thread().name))
                         self.target_update()
                         last_target_update = global_frame
 
@@ -421,6 +425,7 @@ class GreedyWorker(object):
 
                 cur_state = new_state
                 step+=1
+                worker_step+=1
 
             # Episode finished, print stats
             episode += 1
@@ -430,14 +435,17 @@ class GreedyWorker(object):
                 write_string = "{}, {}, {}, {}\n".format(ep_reward, epsilon, ep_ave_max_q/float(step), global_frame)
                 f.write(write_string)
 
+        # One last update
+        if state_batch_M:
+            self.encoder_network.update(self.sess, state_batch_M, new_state_batch_M, action_batch_M)
+            state_batch_M, new_state_batch_M, action_batch_M = [], [], []
 
-        with self.global_batches_lock:
-            # print global_frame, self.thread_id
-            # print self.global_frame.eval(session=self.sess), self.thread_id
-            # print "Thread {} has local batch size {}".format(self.thread_id, len(state_batch_M))
-            self.global_state_batch.extend(state_batch_M)
-            self.global_action_batch.extend(action_batch_M)
-            self.global_new_state_batch.extend(new_state_batch_M)
+
+
+        # with self.global_batches_lock:
+        #     self.global_state_batch.extend(state_batch_M)
+        #     self.global_action_batch.extend(action_batch_M)
+        #     self.global_new_state_batch.extend(new_state_batch_M)
 
 ################################################################################
 # Define IM worker
@@ -465,10 +473,10 @@ class IMWorker(object):
         episode = 0
         last_target_update = 0
         last_checkpoint_update = 0
+        worker_step = 0
 
-        print('I am thread number %s'%(threading.current_thread().name))
         print 'Starting IM worker {}'.format(self.thread_id)
-        thread_file = './data/IM_worker_{}.csv'.format(self.thread_id)
+        thread_file = DATA_PATH + 'IM_worker_{}.csv'.format(self.thread_id)
         with open(thread_file, 'w') as f:
             f.write('total reward, intrinsic reward, extrinsic reward, ave_max_q, global_frame\n')
 
@@ -540,7 +548,7 @@ class IMWorker(object):
                     state_batch_P, action_batch_P, target_batch_P = [], [] ,[]
 
                 # Update teacher network
-                if step % TEACHER_UPDATE_RATE == 0 or done:
+                if worker_step % TEACHER_UPDATE_RATE == 0:
                     self.teacher_network.update(self.sess, state_batch_M, new_state_batch_M, action_batch_M)
                     self.encoder_network.update(self.sess, state_batch_M, new_state_batch_M, action_batch_M)
                     state_batch_M, action_batch_M, new_state_batch_M = [], [] ,[]
@@ -549,25 +557,21 @@ class IMWorker(object):
                     # Update target network
                     if global_frame - last_target_update >= TARGET_UPDATE_RATE:
                         print "Updating target network..."
-                        print "global_frame {}, last target {}, rate {}".format(global_frame, last_target_update, TARGET_UPDATE_RATE)
-                        print('I am thread number %s'%(threading.current_thread().name))
                         self.target_update()
                         last_target_update = global_frame
 
                     if global_frame - last_checkpoint_update >= CHECKPOINT_UPDATE_RATE:
-                        saver.save(sess, os.path.join(LOG_PATH, 'IM-{}-sess.ckpt'.format(GAME)), global_step=global_frame)
+                        saver.save(sess, os.path.join(LOG_PATH, '{}-sess.ckpt'.format(GAME)), global_step=global_frame)
                         print "Session saved to {}".format(LOG_PATH)
                         last_checkpoint_update = global_frame
 
                 # If max step is reached, request all threads to stop
                 if global_frame >= NUM_FRAMES_IM:
-                    # print 'Reached checkpoint: Requesting threads to stop'
-                    # print 'before:', self.coord.should_stop()
                     self.coord.request_stop()
-                    # print 'after:', self.coord.should_stop()
 
                 cur_state = new_state
                 step+=1
+                worker_step+=1
 
             # Episode finished, print stats
             episode += 1
@@ -584,14 +588,20 @@ class IMWorker(object):
 
 def train(sess, saver):
     '''Launches the training by creating parallel threads, launching agents in each thread and starting each agent learning'''
+    
+    # Overwrite global game & beta if passed in
+    if not os.path.exists(os.path.join("./trained", GAME)):
+        os.makedirs(os.path.join("./trained", GAME))
+    if not os.path.exists(os.path.join("./data", GAME)):
+        os.makedirs(os.path.join("./data", GAME))
+    if not os.path.exists(LOG_PATH):
+        os.makedirs(LOG_PATH)
+    if not os.path.exists(DATA_PATH):
+        os.makedirs(DATA_PATH)
 
     # Create global step counter
     global_frame_eps = tf.Variable(name='global_frame_eps', initial_value=0, trainable=False, dtype=tf.int32)
     global_frame_im = tf.Variable(name = 'global_frame_im', initial_value = 0, trainable = False, dtype = tf.int32)
-
-    global_state_batch = []
-    global_action_batch = []
-    global_new_state_batch = []
 
     # Get num actions
     env = gym.make(GAME)
@@ -613,65 +623,54 @@ def train(sess, saver):
     coord = tf.train.Coordinator()
 
     # Create environment for each thread
-    env_greedy = [EnvWrapper(gym.make(GAME), BUFFER_SIZE) for i in range(NUM_THREADS)]
-    env_im = [EnvWrapper(gym.make(GAME), BUFFER_SIZE) for i in range(NUM_THREADS)]
+    envs = [EnvWrapper(gym.make(GAME), BUFFER_SIZE) for i in range(NUM_THREADS)]
+    # env_im = [EnvWrapper(gym.make(GAME), BUFFER_SIZE) for i in range(NUM_THREADS)]
 
     # Create workers for each thread
     threads = []
-    # greedy_workers = []
-    # greedy_threads = []
-
-    # im_workers = []
-    # im_threads = []
-
-    # Initialize with an epsilon-greedy strategy to collect states and actions for initial training of encoder
+    
+    # Initialize with an e-greedy strategy to collect states and actions for initial training of encoder
     for thread_id in range(NUM_THREADS):
-        worker = GreedyWorker(sess, saver, thread_id, coord, global_frame_eps, global_state_batch, global_new_state_batch, global_action_batch, env_greedy[thread_id], pred_network, target_network)
-        # workers.append(worker)
+        # worker = GreedyWorker(sess, saver, thread_id, coord, global_frame_eps, global_state_batch, global_new_state_batch, global_action_batch, env_greedy[thread_id], pred_network, target_network)
+        worker = GreedyWorker(sess, saver, thread_id, coord, global_frame_eps, envs[thread_id], pred_network, target_network, encoder_network, teacher_network)
         worker_work = lambda: worker.work()
         t = threading.Thread(target=worker_work)
-        #greedy_threads.append(t)
         threads.append(t)
         t.daemon=True # WHAT
         t.start()
         time.sleep(0.01) # needed?
 
     coord.join(threads)
-    #coord.join(greedy_threads)
 
-    global_state_batch = np.array(global_state_batch)
-    global_new_state_batch = np.array(global_new_state_batch)
-    global_action_batch = np.array(global_action_batch)
+    # global_state_batch = np.array(global_state_batch)
+    # global_new_state_batch = np.array(global_new_state_batch)
+    # global_action_batch = np.array(global_action_batch)
 
-    # Train the auto encoder with data collected with epsilon-greedy
-    encoder_network.update(sess, global_state_batch, global_new_state_batch, global_action_batch)
-    teacher_network.update(sess, global_state_batch, global_new_state_batch, global_action_batch)
-    global_state_batch, global_new_state_batch, global_action_batch = None, None, None
+    # # Train the auto encoder with data collected with epsilon-greedy
+    # encoder_network.update(sess, global_state_batch, global_new_state_batch, global_action_batch)
+    # teacher_network.update(sess, global_state_batch, global_new_state_batch, global_action_batch)
+    # global_state_batch, global_new_state_batch, global_action_batch = None, None, None
 
     # Create thread coordinator
     im_coord = tf.train.Coordinator()
+    im_threads = []
 
     # Train with intrinsic motivation approach
     for thread_id in range(NUM_THREADS):
-        worker = IMWorker(sess, saver, thread_id, im_coord, global_frame_im, env_im[thread_id], pred_network, target_network, encoder_network, teacher_network)
-        # workers.append(worker)
+        worker = IMWorker(sess, saver, thread_id, im_coord, global_frame_im, envs[thread_id], pred_network, target_network, encoder_network, teacher_network)
         worker_work = lambda: worker.work()
         t = threading.Thread(target=worker_work)
-        #im_threads.append(t)
-        threads.append(t)
+        im_threads.append(t)
         t.daemon=True # WHAT
         t.start()
         time.sleep(0.01) # needed?
 
-    while True:
-        if SHOW_TRAINING:
+    if SHOW_TRAINING:
+        while True:
             for env in env_im:
                 env.render()
 
-    print "finished here"
-
-    im_coord.join(threads)
-    #im_coord.join(im_threads)
+    im_coord.join(im_threads)
     saver.save(sess, os.path.join(LOG_PATH, 'IM-{}-sess.ckpt'.format(GAME)), global_step=global_frame_im)
     print "Final session saved to {}".format(LOG_PATH)
 
@@ -747,7 +746,7 @@ def evaluate_model(sess, pred_network):
 
     monitor_env = gym.make(GAME)
     env = EnvWrapper(monitor_env, BUFFER_SIZE)
-    trained_eval = './data/IM-{}-trained_eval.csv'.format(GAME)
+    trained_eval = DATA_PATH + 'IM-{}-trained_eval.csv'.format(GAME)
     with open(trained_eval, 'w') as f:
         f.write('reward\n')
 
