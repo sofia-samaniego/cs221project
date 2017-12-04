@@ -35,7 +35,7 @@ PRED_UPDATE_RATE = 32
 TARGET_UPDATE_RATE = 50000
 TEACHER_UPDATE_RATE = 50000
 CHECKPOINT_UPDATE_RATE = 1000000
-INT_REWARD_DECAY = 0.01 # not used atm
+INT_REWARD_DECAY = 10 # not used atm
 NUM_THREADS = 8
 NUM_EPISODES_EVAL = 200
 MAX_TO_KEEP = 1  # For the saved models
@@ -177,9 +177,9 @@ class DQN(object):
         with tf.variable_scope(self.scope):
             self.inputs = tf.placeholder(tf.float32, [None] + list(INPUT_SHAPE))
             net = tf.transpose(self.inputs, [0,2,3,1])
-            net = tflearn.conv_2d(net, 32, 8, strides=4, activation='relu')
-            net = tflearn.conv_2d(net, 64, 4, strides=2, activation='relu')
-            net = tflearn.conv_2d(net, 64, 3, strides=1, activation='relu')
+            net = tflearn.conv_2d(net, 32, 8, strides=4, activation='relu', padding="valid")
+            net = tflearn.conv_2d(net, 64, 4, strides=2, activation='relu', padding="valid")
+            net = tflearn.conv_2d(net, 64, 3, strides=1, activation='relu', padding="valid")
             net = tflearn.fully_connected(net, 512, activation='relu')
             self.qvals = tflearn.fully_connected(net, self.num_actions, activation='linear')
         return
@@ -214,9 +214,9 @@ class Encoder(object):
         self.build_model()
 
     def build_encoder(self, states):
-        encoder = tflearn.conv_2d(states, 32, 8, strides=4, padding="same", activation='relu')
-        encoder = tflearn.conv_2d(encoder, 64, 4, strides=2, padding="same", activation='relu')
-        encoder = tflearn.conv_2d(encoder, 64, 3, strides=2, padding="same", activation='relu')
+        encoder = tflearn.conv_2d(states, 32, 8, strides=4, padding="same", activation='relu', padding="valid")
+        encoder = tflearn.conv_2d(encoder, 64, 4, strides=2, padding="same", activation='relu', padding="valid")
+        encoder = tflearn.conv_2d(encoder, 64, 3, strides=2, padding="same", activation='relu', padding="valid")
         encoder = tflearn.fully_connected(encoder, NUM_HIDDEN_ENCODER, activation='relu')
         return encoder
 
@@ -519,8 +519,8 @@ class IMWorker(object):
 
                 # Get intrinsic reward
                 err = self.teacher_network.get_normalized_error(sess, cur_state, new_state, action)
-                #int_reward = err / (global_frame / INT_REWARD_DECAY)
-                int_reward = err
+                int_reward = err / (global_frame // INT_REWARD_DECAY)
+                # int_reward = err
                 ep_int_reward += int_reward
 
                 total_reward = ext_reward + BETA * int_reward
