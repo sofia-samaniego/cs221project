@@ -6,7 +6,7 @@ from gym.wrappers import Monitor
 import random
 import numpy as np
 import tensorflow as tf
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 from skimage.color import rgb2gray
 from skimage.transform import resize
 from collections import deque
@@ -214,9 +214,9 @@ class Encoder(object):
         self.build_model()
 
     def build_encoder(self, states):
-        encoder = tflearn.conv_2d(states, 32, 8, strides=4, padding="same", activation='relu', padding="valid")
-        encoder = tflearn.conv_2d(encoder, 64, 4, strides=2, padding="same", activation='relu', padding="valid")
-        encoder = tflearn.conv_2d(encoder, 64, 3, strides=2, padding="same", activation='relu', padding="valid")
+        encoder = tflearn.conv_2d(states, 32, 8, strides=4, activation='relu', padding="valid")
+        encoder = tflearn.conv_2d(encoder, 64, 4, strides=2, activation='relu', padding="valid")
+        encoder = tflearn.conv_2d(encoder, 64, 3, strides=2, activation='relu', padding="valid")
         encoder = tflearn.fully_connected(encoder, NUM_HIDDEN_ENCODER, activation='relu')
         return encoder
 
