@@ -68,7 +68,8 @@ def increment_global_frame_op(sess, global_frame):
     return run_op
 
 def sample_final_epsilon():
-    final_epsilons = np.array([0.1, 0.01, 0.5])
+    # final_epsilons = np.array([0.1, 0.01, 0.5])
+    final_epsilons = np.array([0.01, 0.01, 0.01])
     probabilities = np.array([0.4, 0.3, 0.3])
     return np.random.choice(final_epsilons, 1, p=list(probabilities))[0]
 
@@ -251,15 +252,11 @@ class Worker(object):
                     action_idx = np.argmax(pred_qvals)
                 action[action_idx]=1
 
-                target = 0
-                for i in range(ACTION_REPEAT):
-                    # Get new state and reward from environment
-                    new_state, reward, done, info = self.env.step(action_idx)
-                    ep_reward += reward
-                    ep_ave_max_q += np.max(pred_qvals)
-                    target += reward
-
-                reward = np.clip(reward, -1, 1)
+                # Get new state and reward from environment
+                new_state, reward, done, info = self.env.step(action_idx)
+                ep_reward += reward
+                ep_ave_max_q += np.max(pred_qvals)
+                target = np.clip(reward, -1, 1)
 
                 if not done:
                     target_qvals = self.target_network.predict(self.sess, new_state)
