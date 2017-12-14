@@ -21,7 +21,7 @@ import os
 if len(sys.argv) < 3:
     print("Usage:\n\t python3 {} [game] [beta]".format(sys.argv[0]))
     sys.exit()
-GAME = sys.argv[1] #'Breakout-v0'
+GAME = sys.argv[1] # eg. 'Breakout-v0'
 BUFFER_SIZE = 4
 INPUT_SHAPE = (BUFFER_SIZE, 84,84)
 BATCH_INPUT_SHAPE = (None, BUFFER_SIZE, 84, 84)
@@ -35,7 +35,6 @@ PRED_UPDATE_RATE = 320
 TARGET_UPDATE_RATE = 50000
 TEACHER_UPDATE_RATE = 1000#10000
 CHECKPOINT_UPDATE_RATE = 500000
-#INT_REWARD_DECAY = 1.0 
 INT_REWARD_FRAME= 10000000
 INT_REWARD_FINAL = 0.01
 NUM_THREADS = 12
