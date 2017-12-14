@@ -19,24 +19,26 @@ import os
 # Define parameters
 ################################################################################
 if len(sys.argv) < 3:
-    print "Usage:\n\t python {} [game] [beta]".format(sys.argv[0])
+    print("Usage:\n\t python3 {} [game] [beta]".format(sys.argv[0]))
     sys.exit()
 GAME = sys.argv[1] #'Breakout-v0'
 BUFFER_SIZE = 4
 INPUT_SHAPE = (BUFFER_SIZE, 84,84)
 BATCH_INPUT_SHAPE = (None, BUFFER_SIZE, 84, 84)
-NUM_FRAMES_GREEDY = 500000
-NUM_FRAMES_IM = 40000000 #50000000
+NUM_FRAMES_GREEDY = 500000#500000
+NUM_FRAMES_IM = 10000000#40000000 #50000000
 DISCOUNT = 0.99
 EPSILON_START = 1.0
 EPSILON_FRAME = 1000000
 EPSILON_TRAINING_PERIOD = 100000 #50000
 PRED_UPDATE_RATE = 32
-TARGET_UPDATE_RATE = 10000
-TEACHER_UPDATE_RATE = 10000
+TARGET_UPDATE_RATE = 50000
+TEACHER_UPDATE_RATE = 1000#10000
 CHECKPOINT_UPDATE_RATE = 500000
-INT_REWARD_DECAY = 10 # not used atm
-NUM_THREADS = 8
+#INT_REWARD_DECAY = 1.0 
+INT_REWARD_FRAME= 1000000
+INT_REWARD_FINAL = 0.001
+NUM_THREADS = 12
 NUM_EPISODES_EVAL = 200
 MAX_TO_KEEP = 1  # For the saved models
 TEST_MODE = False
@@ -333,7 +335,7 @@ class GreedyWorker(object):
         last_checkpoint_update = 0
         worker_step = 0
 
-        print 'Starting greedy worker {} with final epsilon {}'.format(self.thread_id,self.final_epsilon)
+        print('Starting greedy worker {} with final epsilon {}'.format(self.thread_id,self.final_epsilon))
         thread_file = DATA_PATH + 'greedy_worker_{}.csv'.format(self.thread_id)
         with open(thread_file, 'w') as f:
             f.write('reward, epsilon, ave_max_q, global_frame\n')
@@ -410,13 +412,13 @@ class GreedyWorker(object):
                 if self.thread_id == 0:
                     # Update target network
                     if global_frame - last_target_update >= TARGET_UPDATE_RATE:
-                        print "Updating target network..."
+                        print("Updating target network...")
                         self.target_update()
                         last_target_update = global_frame
 
                     if global_frame - last_checkpoint_update >= CHECKPOINT_UPDATE_RATE:
                         saver.save(sess, os.path.join(LOG_PATH, '{}-sess.ckpt'.format(GAME)), global_step=global_frame)
-                        print "Session saved to {}".format(LOG_PATH)
+                        print("Session saved to {}".format(LOG_PATH))
                         last_checkpoint_update = global_frame
 
                 # If max step is reached, request all threads to stop
@@ -429,8 +431,8 @@ class GreedyWorker(object):
 
             # Episode finished, print stats
             episode += 1
-            print "Greedy Worker: {}  Episode: {}  Step: {}  Frame: {}  Reward: {}  Qmax: {}  Epsilon: {}".\
-                format(self.thread_id, episode, step, global_frame, ep_reward, ep_ave_max_q/float(step), epsilon)
+            print("Greedy Worker: {}  Episode: {}  Step: {}  Frame: {}  Reward: {}  Qmax: {}  Epsilon: {}".\
+                format(self.thread_id, episode, step, global_frame, ep_reward, ep_ave_max_q/float(step), epsilon))
             with open(thread_file,'a') as f:
                 write_string = "{}, {}, {}, {}\n".format(ep_reward, epsilon, ep_ave_max_q/float(step), global_frame)
                 f.write(write_string)
@@ -474,8 +476,9 @@ class IMWorker(object):
         last_target_update = 0
         last_checkpoint_update = 0
         worker_step = 0
+        decay = 1.
 
-        print 'Starting IM worker {}'.format(self.thread_id)
+        print('Starting IM worker {}'.format(self.thread_id))
         thread_file = DATA_PATH + 'IM_worker_{}.csv'.format(self.thread_id)
         with open(thread_file, 'w') as f:
             f.write('total reward, intrinsic reward, extrinsic reward, ave_max_q, global_frame\n')
@@ -519,7 +522,12 @@ class IMWorker(object):
 
                 # Get intrinsic reward
                 err = self.teacher_network.get_normalized_error(sess, cur_state, new_state, action)
-                int_reward = err / (global_frame // INT_REWARD_DECAY)
+                decay = float(min(global_frame, 1000))
+ 
+                # Update epsilon
+                if decay > INT_REWARD_FINAL:
+                    decay -= (1.0 - INT_REWARD_FINAL)/INT_REWARD_FRAME
+                int_reward = err / decay
                 # int_reward = err
                 ep_int_reward += int_reward
 
@@ -556,13 +564,13 @@ class IMWorker(object):
                 if self.thread_id == 0:
                     # Update target network
                     if global_frame - last_target_update >= TARGET_UPDATE_RATE:
-                        print "Updating target network..."
+                        print("Updating target network...")
                         self.target_update()
                         last_target_update = global_frame
 
                     if global_frame - last_checkpoint_update >= CHECKPOINT_UPDATE_RATE:
                         saver.save(sess, os.path.join(LOG_PATH, '{}-sess.ckpt'.format(GAME)), global_step=global_frame)
-                        print "Session saved to {}".format(LOG_PATH)
+                        print("Session saved to {}".format(LOG_PATH))
                         last_checkpoint_update = global_frame
 
                 # If max step is reached, request all threads to stop
@@ -575,8 +583,8 @@ class IMWorker(object):
 
             # Episode finished, print stats
             episode += 1
-            print "IM Worker: {}  Episode: {}  Step: {}  Frame: {}  Total Reward: {}  Int Reward: {}  Ext Reward: {}  Qmax: {}".\
-                format(self.thread_id, episode, step, global_frame, ep_total_reward, ep_int_reward, ep_ext_reward, ep_ave_max_q/float(step))
+            print("IM Worker: {}  Episode: {}  Step: {}  Frame: {}  Total Reward: {}  Int Reward: {}  Ext Reward: {}  Qmax: {}".\
+                format(self.thread_id, episode, step, global_frame, ep_total_reward, ep_int_reward, ep_ext_reward, ep_ave_max_q/float(step)))
             with open(thread_file,'a') as f:
                 write_string = "{}, {}, {}, {}, {}\n".format(ep_total_reward, ep_int_reward, ep_ext_reward, ep_ave_max_q/float(step), global_frame)
                 f.write(write_string)
@@ -672,7 +680,7 @@ def train(sess, saver):
 
     im_coord.join(im_threads)
     saver.save(sess, os.path.join(LOG_PATH, 'IM-{}-sess.ckpt'.format(GAME)), global_step=global_frame_im)
-    print "Final session saved to {}".format(LOG_PATH)
+    print("Final session saved to {}".format(LOG_PATH))
 
     # Evaluate straight away
     evaluate_model(sess, pred_network)
@@ -698,14 +706,12 @@ def evaluate(sess, saver):
     # first_update = copy_vars(sess, 'pred','target')
     # first_update()
 
-    print [v.name for v in tf.trainable_variables()]
 
     new_saver = tf.train.import_meta_graph(TEST_PATH+'.meta')
     new_saver.restore(sess, TEST_PATH)
     # var = tf.get_default_graph().get_tensor_by_name("pred/Conv2D/b:0")
     # print "var: ", var.eval()
     # saver.restore(sess, TEST_PATH)
-    print [v.name for v in tf.trainable_variables()]
     tf_vars = [v for v in tf.trainable_variables()]
     mid = len(tf_vars)//2
     for i in range(mid):
@@ -812,5 +818,5 @@ if __name__ == "__main__":
             train(sess, saver)
 
     end = time.time()
-    print "Time taken: {}".format(end-start)
+    print("Time taken: {}".format(end-start))
 

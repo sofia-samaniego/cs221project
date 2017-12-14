@@ -26,18 +26,18 @@ BUFFER_SIZE = 4
 INPUT_SHAPE = (BUFFER_SIZE, 84,84)
 BATCH_INPUT_SHAPE = (None, BUFFER_SIZE, 84, 84)
 NUM_FRAMES_GREEDY = 500000#500000
-NUM_FRAMES_IM = 10000000#40000000 #50000000
+NUM_FRAMES_IM = 20000000#40000000 #50000000
 DISCOUNT = 0.99
 EPSILON_START = 1.0
 EPSILON_FRAME = 1000000
 EPSILON_TRAINING_PERIOD = 100000 #50000
-PRED_UPDATE_RATE = 32
+PRED_UPDATE_RATE = 320
 TARGET_UPDATE_RATE = 50000
 TEACHER_UPDATE_RATE = 1000#10000
 CHECKPOINT_UPDATE_RATE = 500000
 #INT_REWARD_DECAY = 1.0 
-INT_REWARD_FRAME= 1000000
-INT_REWARD_FINAL = 0.001
+INT_REWARD_FRAME= 10000000
+INT_REWARD_FINAL = 0.01
 NUM_THREADS = 12
 NUM_EPISODES_EVAL = 200
 MAX_TO_KEEP = 1  # For the saved models
@@ -53,7 +53,6 @@ NUM_HIDDEN_ENCODER = 512
 LR = 0.00025 # learning rate
 MOMENTUM = 0.95
 BETA = float(sys.argv[2]) #0.1
-LEARNING_RATE_ENC = 0.001
 
 LOG_PATH = "./trained/" + GAME + '/' + str(BETA) + '/'
 DATA_PATH = "./data/" + GAME + '/' + str(BETA) + '/'
@@ -272,6 +271,8 @@ class StatePredictor(object):
         self.num_actions = num_actions
         self.encoder = encoder
         self.max_error = 0.0
+        #self.mean_error = 0.0
+        #self.n = 0
         self.build_model()
 
     def build_model(self):
@@ -298,7 +299,11 @@ class StatePredictor(object):
         new_phi = self.encoder.encode_state(sess, new_state)
         error = sess.run(self.state_predictor_cost, {self.phis: [phi], self.new_phis: [new_phi], self.actions: [action]})
         self.max_error = max(error, self.max_error)
+        
+        #self.mean_error = (self.n * self.mean_error + error) / (self.n + 1)
+        #self.n = self.n+1
         return error / self.max_error
+#        return error / self.mean_error
 
     def update(self, sess, states, new_states, actions):
         phis = self.encoder.encode_states(sess, states)
@@ -503,7 +508,7 @@ class IMWorker(object):
             action_batch_M = []
             new_state_batch_M = []
 
-            while not done:
+            while not done and not self.coord.should_stop():
                 with self.global_frame_lock:
                     global_frame = self.increment_global_frame()
 
@@ -522,12 +527,13 @@ class IMWorker(object):
 
                 # Get intrinsic reward
                 err = self.teacher_network.get_normalized_error(sess, cur_state, new_state, action)
-                decay = float(min(global_frame, 1000))
+                #decay = float(min(global_frame, 1000))
  
                 # Update epsilon
                 if decay > INT_REWARD_FINAL:
                     decay -= (1.0 - INT_REWARD_FINAL)/INT_REWARD_FRAME
                 int_reward = err / decay
+                #int_reward = err
                 # int_reward = err
                 ep_int_reward += int_reward
 
