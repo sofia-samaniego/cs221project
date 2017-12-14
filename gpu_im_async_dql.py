@@ -532,7 +532,7 @@ class IMWorker(object):
                 # Update epsilon
                 if decay > INT_REWARD_FINAL:
                     decay -= (1.0 - INT_REWARD_FINAL)/INT_REWARD_FRAME
-                int_reward = err / decay
+                int_reward = err * decay
                 #int_reward = err
                 # int_reward = err
                 ep_int_reward += int_reward
